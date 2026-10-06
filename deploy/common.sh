@@ -119,6 +119,7 @@ function clear_cluster_state() {
 
   rm -f "$state_file"
   rm -f "${cluster_dir}/proxy.env"
+  rm -f "${cluster_dir}/proxy.env.fish"
   rm -f "${cluster_dir}/kubeconfig"
   rm -f "${cluster_dir}/kubeadmin-password"
 
