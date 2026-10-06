@@ -36,3 +36,39 @@
       fi
     dest: "./proxy.env"
   delegate_to: localhost
+
+- name: Create Fish proxy environment file
+  ansible.builtin.copy:
+    content: |
+      # Determine the directory where this proxy.env.fish file is located
+      set -l proxy_env_dir (cd (dirname (status filename)); and pwd)
+
+      set -gx EC2_PUBLIC_IP '{{ proxy_environment_host | replace("\\", "\\\\") | replace("'", "\\'") }}'
+      set -gx PROXYPORT '{{ proxy_port }}'
+      set -gx HTTP_PROXY "http://$EC2_PUBLIC_IP:$PROXYPORT/"
+      set -gx HTTPS_PROXY "http://$EC2_PUBLIC_IP:$PROXYPORT/"
+      set -gx NO_PROXY '{{ proxy_no_proxy_list | replace("\\", "\\\\") | replace("'", "\\'") }}'
+
+      set -gx http_proxy "$HTTP_PROXY"
+      set -gx https_proxy "$HTTPS_PROXY"
+      set -gx no_proxy "$NO_PROXY"
+
+      set -gx KUBECONFIG "$proxy_env_dir/kubeconfig"
+      set -gx K8S_AUTH_PROXY "$HTTP_PROXY"
+
+      echo "Proxy environment loaded from: $proxy_env_dir"
+      echo "KUBECONFIG set to: $KUBECONFIG"
+
+      if not test -f "$KUBECONFIG"
+          echo "Warning: KUBECONFIG file not found at $KUBECONFIG"
+          echo "Make sure you're sourcing this file from the correct location or that the kubeconfig file exists."
+      else
+          echo "✓ KUBECONFIG file found"
+      end
+    dest: "./proxy.env.fish"
+    mode: "0644"
+  vars:
+    proxy_environment_host: >-
+      {{ hostvars[inventory_hostname]['ansible_host'] |
+         default(inventory_hostname.split('@')[1] if '@' in inventory_hostname else inventory_hostname) }}
+  delegate_to: localhost

@@ -50,7 +50,8 @@ This role is typically used after cluster deployment:
 
 - `./kubeconfig`: Local copy of cluster kubeconfig
 - `./kubeadmin-password`: Local copy of cluster admin password
-- `./proxy.env`: Environment file with proxy configuration
+- `./proxy.env`: Bash-compatible environment file with proxy configuration
+- `./proxy.env.fish`: Fish-compatible environment file with proxy configuration
 
 ## Generated Environment
 
@@ -59,6 +60,8 @@ The `proxy.env` file includes:
 - KUBECONFIG path setup
 - Kubernetes authentication proxy settings
 - NO_PROXY exclusions for essential services
+
+Fish users can load the equivalent settings with `source proxy.env.fish`.
 
 ## Task Structure
 
@@ -72,4 +75,4 @@ The `proxy.env` file includes:
 
 - **Security**: Proxy runs on port 8213 and is configured for cluster access only
 - **Firewall**: Automatically configures firewall rules for proxy access
-- **Persistence**: Proxy container has restart policy for reliability 
+- **Persistence**: Proxy container has restart policy for reliability

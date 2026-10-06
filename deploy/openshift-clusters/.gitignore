@@ -2,6 +2,7 @@ inventory.ini
 inventory_baremetal.ini
 
 proxy.env
+proxy.env.fish
 kubeconfig
 kubeadmin-password
 clusters/
