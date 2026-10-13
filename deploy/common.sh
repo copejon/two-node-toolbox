@@ -208,9 +208,14 @@ function create_capacity_reservation() {
     local instance_platform="${3:-Red Hat Enterprise Linux}"
     local duration_minutes="${CAPACITY_RESERVATION_DURATION_MINUTES:-60}"
 
-    # Calculate end date (current time + duration)
+    # Calculate end date (current time + duration).
+    # GNU date (Linux): -d; BSD date (macOS): -v.
     local end_date
-    end_date=$(date -u -d "+${duration_minutes} minutes" '+%Y-%m-%dT%H:%M:%SZ')
+    if [[ "$(uname -s)" == "Darwin" ]]; then
+        end_date=$(date -u -v+"${duration_minutes}M" '+%Y-%m-%dT%H:%M:%SZ')
+    else
+        end_date=$(date -u -d "+${duration_minutes} minutes" '+%Y-%m-%dT%H:%M:%SZ')
+    fi
 
     msg_info "Checking EC2 capacity availability for ${instance_type} (${instance_platform}) in ${region}..."
     msg_info "Reservation will expire at ${end_date} (${duration_minutes} minutes from now)"
