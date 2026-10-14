@@ -39,33 +39,89 @@ else
     echo -e "${user}\tALL=(ALL)\tNOPASSWD: ALL" | sudo tee "/etc/sudoers.d/${user}"
 fi
 
-sudo rm -rf /etc/yum.repos.d/*
-sudo subscription-manager config --rhsm.manage_repos=1 --rhsmcertd.disable=redhat-access-insights
+restore_repos_and_exit() {
+    echo "ERROR: $1."
+    if sudo test -d /etc/yum.repos.d.bak; then
+        echo "Restoring pre-existing repo files."
+        sudo rm -rf /etc/yum.repos.d
+        sudo mv /etc/yum.repos.d.bak /etc/yum.repos.d
+    else
+        echo "No backup present (registration was already in place); leaving /etc/yum.repos.d untouched."
+    fi
+    exit 1
+}
 
-# Use activation key for non-interactive registration if available
-if [ -n "${RHSM_ACTIVATION_KEY}" ] && [ -n "${RHSM_ORG}" ]; then
-    echo "Using activation key for RHSM registration"
-    sudo subscription-manager register --activationkey="${RHSM_ACTIVATION_KEY}" --org="${RHSM_ORG}"
+if sudo subscription-manager identity >/dev/null 2>&1; then
+    echo "System already registered, skipping registration and repo wipe."
 else
-    echo "No activation key found, falling back to interactive registration"
-    sudo subscription-manager register
+    if sudo test -d /etc/yum.repos.d.bak; then
+        echo "Reusing pre-existing backup from an interrupted prior run."
+    else
+        staging=/etc/yum.repos.d.bak.partial
+        sudo rm -rf "${staging}"
+        if ! sudo cp -a /etc/yum.repos.d "${staging}"; then
+            echo "ERROR: Failed to back up /etc/yum.repos.d. Aborting before wipe."
+            sudo rm -rf "${staging}"
+            exit 1
+        fi
+        if ! sudo mv "${staging}" /etc/yum.repos.d.bak; then
+            echo "ERROR: Failed to publish backup to /etc/yum.repos.d.bak. Aborting before wipe."
+            sudo rm -rf "${staging}"
+            exit 1
+        fi
+        sudo rm -rf /etc/yum.repos.d/*
+    fi
+
+    # Use activation key for non-interactive registration if available
+    if [ -n "${RHSM_ACTIVATION_KEY}" ] && [ -n "${RHSM_ORG}" ]; then
+        echo "Using activation key for RHSM registration"
+        sudo subscription-manager register --activationkey="${RHSM_ACTIVATION_KEY}" --org="${RHSM_ORG}" \
+            || restore_repos_and_exit "subscription-manager register failed"
+    else
+        echo "No activation key found, falling back to interactive registration"
+        sudo subscription-manager register \
+            || restore_repos_and_exit "subscription-manager register failed"
+    fi
 fi
 
-sudo subscription-manager attach --pool=8a85f99c7d76f2fd017d96c411c70667
+sudo subscription-manager config --rhsm.manage_repos=1 --rhsmcertd.disable=redhat-access-insights
+
+sudo subscription-manager attach --pool=8a85f99c7d76f2fd017d96c411c70667 \
+    || echo "WARNING: subscription-manager attach failed or is unsupported (e.g. RHEL 10); continuing — required repos are validated below."
+
 sudo subscription-manager repos \
 --enable "rhel-${RHEL_MAJOR_VERSION}-for-$(uname -m)-appstream-rpms" \
 --enable "rhel-${RHEL_MAJOR_VERSION}-for-$(uname -m)-baseos-rpms" \
---enable "rhocp-$(get_ocp_version)-for-rhel-${RHEL_MAJOR_VERSION}-$(uname -m)-rpms"
+--enable "rhocp-$(get_ocp_version)-for-rhel-${RHEL_MAJOR_VERSION}-$(uname -m)-rpms" \
+    || restore_repos_and_exit "subscription-manager repos --enable failed"
+
+if sudo test -d /etc/yum.repos.d.bak; then
+    if sudo cp -an /etc/yum.repos.d.bak/. /etc/yum.repos.d/; then
+        sudo rm -rf /etc/yum.repos.d.bak
+    else
+        echo "ERROR: Failed to restore files from /etc/yum.repos.d.bak; keeping backup for manual recovery." >&2
+        exit 1
+    fi
+fi
 
 # Enable CodeReady Builder (CRB) repo for -devel packages (e.g. libvirt-devel).
-# On RHUI instances (like AWS), subscription-manager repos --enable doesn't work
-# for CRB because repos are managed by RHUI configuration. The 'crb' command
-# handles both RHUI and non-RHUI environments correctly.
+# On RHUI instances (like AWS), subscription-manager repos --enable can't touch
+# CRB at all (registered or not) because it's managed by the static RHUI repo
+# file, not RHSM entitlements. dnf config-manager edits that file directly,
+# which is what 'crb enable' itself wraps on non-RHUI hosts. RHEL_HOST_AMI can
+# also point at a custom, RHSM-only AMI with no RHUI repo file at all, so fall
+# back to subscription-manager for that case rather than assuming RHUI.
 enable_crb_repo() {
+    local arch
+    arch=$(uname -m)
+    local rhui_crb="codeready-builder-for-rhel-${RHEL_MAJOR_VERSION}-rhui-rpms"
+    local rhsm_crb="codeready-builder-for-rhel-${RHEL_MAJOR_VERSION}-${arch}-rpms"
+
     if command -v crb &>/dev/null; then
         sudo crb enable
     else
-        sudo subscription-manager repos --enable "codeready-builder-for-rhel-${RHEL_MAJOR_VERSION}-$(uname -m)-rpms"
+        sudo dnf config-manager --set-enabled "${rhui_crb}" \
+            || sudo subscription-manager repos --enable "${rhsm_crb}"
     fi
 }
 
